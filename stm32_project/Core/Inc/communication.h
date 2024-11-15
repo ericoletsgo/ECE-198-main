@@ -96,7 +96,10 @@ typedef struct {
     uint8_t rx_buffer[COMM_RX_BUFFER_SIZE];
     uint8_t rx_index;
     bool rx_packet_ready;
-    
+    uint8_t rx_state;
+    uint8_t rx_expected_length;
+    uint8_t rx_payload_received;
+
     // Statistics
     uint32_t packets_sent;
     uint32_t packets_received;

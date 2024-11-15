@@ -40,6 +40,9 @@ bool Comm_Init(Comm_Handle_t *handle, UART_HandleTypeDef *huart)
     handle->tx_busy = false;
     handle->rx_index = 0;
     handle->rx_packet_ready = false;
+    handle->rx_state = 0;
+    handle->rx_expected_length = 0;
+    handle->rx_payload_received = 0;
     handle->packets_sent = 0;
     handle->packets_received = 0;
     handle->errors = 0;
@@ -175,71 +178,59 @@ void Comm_ProcessRxByte(Comm_Handle_t *handle, uint8_t byte)
     if (handle == NULL) {
         return;
     }
-    
-    // State machine for packet reception
-    static enum {
-        STATE_WAIT_START,
-        STATE_RECEIVE_HEADER,
-        STATE_RECEIVE_PAYLOAD,
-        STATE_RECEIVE_FOOTER
-    } rx_state = STATE_WAIT_START;
-    
-    static uint8_t expected_length = 0;
-    static uint8_t payload_received = 0;
-    
-    switch (rx_state) {
-        case STATE_WAIT_START:
+
+    // rx_state values: 0=WAIT_START, 1=RECEIVE_HEADER, 2=RECEIVE_PAYLOAD, 3=RECEIVE_FOOTER
+
+    switch (handle->rx_state) {
+        case 0: // WAIT_START
             if (byte == COMM_PACKET_START_BYTE) {
                 handle->rx_buffer[0] = byte;
                 handle->rx_index = 1;
-                rx_state = STATE_RECEIVE_HEADER;
+                handle->rx_state = 1;
             }
             break;
-            
-        case STATE_RECEIVE_HEADER:
+
+        case 1: // RECEIVE_HEADER
             handle->rx_buffer[handle->rx_index++] = byte;
-            
+
             if (handle->rx_index >= sizeof(CommPacketHeader_t)) {
                 CommPacketHeader_t *header = (CommPacketHeader_t*)handle->rx_buffer;
-                expected_length = header->payload_length;
-                payload_received = 0;
-                
-                if (expected_length > COMM_MAX_PAYLOAD_SIZE) {
-                    // Invalid payload length, reset
-                    rx_state = STATE_WAIT_START;
+                handle->rx_expected_length = header->payload_length;
+                handle->rx_payload_received = 0;
+
+                if (handle->rx_expected_length > COMM_MAX_PAYLOAD_SIZE) {
+                    handle->rx_state = 0;
                     handle->errors++;
-                } else if (expected_length == 0) {
-                    rx_state = STATE_RECEIVE_FOOTER;
+                } else if (handle->rx_expected_length == 0) {
+                    handle->rx_state = 3;
                 } else {
-                    rx_state = STATE_RECEIVE_PAYLOAD;
+                    handle->rx_state = 2;
                 }
             }
             break;
-            
-        case STATE_RECEIVE_PAYLOAD:
+
+        case 2: // RECEIVE_PAYLOAD
             handle->rx_buffer[handle->rx_index++] = byte;
-            payload_received++;
-            
-            if (payload_received >= expected_length) {
-                rx_state = STATE_RECEIVE_FOOTER;
+            handle->rx_payload_received++;
+
+            if (handle->rx_payload_received >= handle->rx_expected_length) {
+                handle->rx_state = 3;
             }
             break;
-            
-        case STATE_RECEIVE_FOOTER:
+
+        case 3: // RECEIVE_FOOTER
+        {
             handle->rx_buffer[handle->rx_index++] = byte;
-            
-            // Check if we've received the complete footer
-            uint8_t footer_start = sizeof(CommPacketHeader_t) + expected_length;
+
+            uint8_t footer_start = sizeof(CommPacketHeader_t) + handle->rx_expected_length;
             if (handle->rx_index >= footer_start + sizeof(CommPacketFooter_t)) {
-                // Verify end byte
                 CommPacketFooter_t *footer = (CommPacketFooter_t*)&handle->rx_buffer[footer_start];
-                
+
                 if (footer->end_byte == COMM_PACKET_END_BYTE) {
-                    // Verify checksum
                     uint8_t calc_checksum = Comm_CalculateChecksum(
-                        &handle->rx_buffer[1], 
-                        sizeof(CommPacketHeader_t) - 1 + expected_length);
-                    
+                        &handle->rx_buffer[1],
+                        sizeof(CommPacketHeader_t) - 1 + handle->rx_expected_length);
+
                     if (calc_checksum == footer->checksum) {
                         handle->rx_packet_ready = true;
                         handle->packets_received++;
@@ -249,15 +240,16 @@ void Comm_ProcessRxByte(Comm_Handle_t *handle, uint8_t byte)
                 } else {
                     handle->errors++;
                 }
-                
-                rx_state = STATE_WAIT_START;
+
+                handle->rx_state = 0;
             }
             break;
+        }
     }
-    
+
     // Buffer overflow protection
     if (handle->rx_index >= COMM_RX_BUFFER_SIZE) {
-        rx_state = STATE_WAIT_START;
+        handle->rx_state = 0;
         handle->rx_index = 0;
         handle->errors++;
     }
