@@ -2,6 +2,7 @@
 #include "bme680.h"
 #include "data_acquisition.h"
 #include "communication.h"
+#include "ble.h"
 #include "display.h"
 #include <stdio.h>
 #include <string.h>
@@ -12,19 +13,23 @@
 
 #define DEVICE_ROLE_FIXED           1
 I2C_HandleTypeDef hi2c1;
+UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 BME680_Handle_t bme680_dev;
 DataAcq_Handle_t dataacq_handle;
 Comm_Handle_t comm_handle;
+BLE_Handle_t ble_handle;
 Display_Handle_t display_handle;
 
 static ProcessedData_t sensor_data;
 static uint32_t last_sample_time = 0;
 static bool system_initialized = false;
+static bool ble_available = false;
 
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_USART1_UART_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_I2C1_Init(void);
 
@@ -32,6 +37,7 @@ static bool System_Init(void);
 static void Application_FixedDevice(void);
 static void Application_WearableDevice(void);
 static void HandleReceivedPacket(void);
+static void HandleReceivedBLEPacket(void);
 static void PrintStartupInfo(void);
 
 int main(void)
@@ -39,6 +45,7 @@ int main(void)
     HAL_Init();
     SystemClock_Config();
     MX_GPIO_Init();
+    MX_USART1_UART_Init();
     MX_USART2_UART_Init();
     MX_I2C1_Init();
     if (!System_Init()) {
@@ -69,7 +76,18 @@ static bool System_Init(void)
         return false;
     }
     PrintStartupInfo();
-    
+
+    Comm_Printf(&comm_handle, "Initializing BLE (HM-10)...\r\n");
+    BLE_Error_t ble_err = BLE_Init(&ble_handle, &huart1,
+                                    BLE_STATE_GPIO_Port, BLE_STATE_Pin);
+    if (ble_err == BLE_OK) {
+        ble_available = true;
+        Comm_Printf(&comm_handle, "BLE initialized successfully\r\n");
+    } else {
+        ble_available = false;
+        Comm_Printf(&comm_handle, "BLE init failed (err=%d) - running wired only\r\n", ble_err);
+    }
+
 #if DEVICE_ROLE_FIXED
     Comm_Printf(&comm_handle, "Initializing BME680...\r\n");
     
@@ -141,34 +159,57 @@ static void Application_FixedDevice(void)
             if (!Comm_SendSensorData(&comm_handle, &sensor_data)) {
                 Comm_Printf(&comm_handle, "Warning: Failed to send data packet\r\n");
             }
+
+            if (ble_available && BLE_IsConnected(&ble_handle)) {
+                if (!BLE_SendSensorData(&ble_handle, &sensor_data)) {
+                    Comm_Printf(&comm_handle, "[BLE] Warning: Failed to send data\r\n");
+                }
+            }
         } else {
             Comm_Printf(&comm_handle, "ERROR: Failed to read sensor data\r\n");
             sensor_data.data_valid = false;
         }
     }
-    
+
     HandleReceivedPacket();
+
+    if (ble_available) {
+        BLE_Process(&ble_handle);
+        HandleReceivedBLEPacket();
+    }
 }
 
 static void Application_WearableDevice(void)
 {
     HandleReceivedPacket();
-    
+
+    if (ble_available) {
+        BLE_Process(&ble_handle);
+        HandleReceivedBLEPacket();
+    }
+
     static uint32_t last_display_update = 0;
     uint32_t current_time = HAL_GetTick();
-    
-    if (current_time - last_display_update >= 1000) {  // Update every second
+
+    if (current_time - last_display_update >= 1000) {
         last_display_update = current_time;
-        
+
         if (sensor_data.data_valid) {
             LED_SetPatternFromAQI(sensor_data.aqi_category);
-            
+
             if (display_handle.initialized) {
                 Display_ShowSensorData(&display_handle, &sensor_data);
             }
         } else {
             if (display_handle.initialized) {
-                Display_ShowError(&display_handle, "Waiting for data...");
+                if (ble_available) {
+                    char ble_msg[32];
+                    snprintf(ble_msg, sizeof(ble_msg), "BLE: %s",
+                             BLE_GetStateString(&ble_handle));
+                    Display_ShowError(&display_handle, ble_msg);
+                } else {
+                    Display_ShowError(&display_handle, "Waiting for data...");
+                }
             }
         }
     }
@@ -247,6 +288,80 @@ static void HandleReceivedPacket(void)
     }
 }
 
+static void HandleReceivedBLEPacket(void)
+{
+    if (!BLE_IsPacketReady(&ble_handle)) {
+        return;
+    }
+
+    ReceivedPacket_t packet;
+
+    if (BLE_GetPacket(&ble_handle, &packet)) {
+        switch (packet.type) {
+            case PACKET_TYPE_SENSOR_DATA:
+                if (Comm_ParseSensorData(&packet, &sensor_data)) {
+                    Comm_Printf(&comm_handle, "[BLE] Received sensor data\r\n");
+                    BLE_SendAck(&ble_handle, packet.sequence);
+                } else {
+                    Comm_Printf(&comm_handle, "[BLE] Failed to parse sensor data\r\n");
+                    BLE_SendNack(&ble_handle, packet.sequence, 0x01);
+                }
+                break;
+
+            case PACKET_TYPE_COMMAND:
+            {
+                CommandType_t cmd;
+                uint8_t params[4];
+                uint8_t param_len;
+
+                if (Comm_ParseCommand(&packet, &cmd, params, &param_len)) {
+                    switch (cmd) {
+                        case CMD_REQUEST_DATA:
+                            BLE_SendSensorData(&ble_handle, &sensor_data);
+                            break;
+
+                        case CMD_CALIBRATE:
+#if DEVICE_ROLE_FIXED
+                            DataAcq_CalibrateGasBaseline(&dataacq_handle, GAS_BASELINE_SAMPLES);
+#endif
+                            break;
+
+                        case CMD_GET_STATUS:
+                        {
+                            uint8_t status_data[4];
+                            uint32_t samples, errors;
+                            DataAcq_GetStats(&dataacq_handle, &samples, &errors);
+                            status_data[0] = system_initialized ? 1 : 0;
+                            status_data[1] = sensor_data.data_valid ? 1 : 0;
+                            status_data[2] = (uint8_t)(samples & 0xFF);
+                            status_data[3] = (uint8_t)(errors & 0xFF);
+                            BLE_SendPacket(&ble_handle, PACKET_TYPE_STATUS, status_data, 4);
+                        }
+                        break;
+
+                        default:
+                            Comm_Printf(&comm_handle, "[BLE] Unknown command: 0x%02X\r\n", cmd);
+                            break;
+                    }
+                    BLE_SendAck(&ble_handle, packet.sequence);
+                }
+            }
+            break;
+
+            case PACKET_TYPE_ACK:
+                break;
+
+            case PACKET_TYPE_NACK:
+                Comm_Printf(&comm_handle, "[BLE] NACK for seq %d\r\n", packet.payload[0]);
+                break;
+
+            default:
+                Comm_Printf(&comm_handle, "[BLE] Unknown packet: 0x%02X\r\n", packet.type);
+                break;
+        }
+    }
+}
+
 static void PrintStartupInfo(void)
 {
     Comm_Printf(&comm_handle, "\r\n");
@@ -254,6 +369,7 @@ static void PrintStartupInfo(void)
     Comm_Printf(&comm_handle, "    Air Quality Monitoring System\r\n");
     Comm_Printf(&comm_handle, "========================================\r\n");
     Comm_Printf(&comm_handle, "Hardware: STM32F4 + BME680\r\n");
+    Comm_Printf(&comm_handle, "BLE:      HM-10 on USART1 (9600 baud)\r\n");
 #if DEVICE_ROLE_FIXED
     Comm_Printf(&comm_handle, "Role: Fixed Device (Sensor)\r\n");
 #else
@@ -315,6 +431,22 @@ static void MX_I2C1_Init(void)
     }
 }
 
+static void MX_USART1_UART_Init(void)
+{
+    huart1.Instance = USART1;
+    huart1.Init.BaudRate = 9600;
+    huart1.Init.WordLength = UART_WORDLENGTH_8B;
+    huart1.Init.StopBits = UART_STOPBITS_1;
+    huart1.Init.Parity = UART_PARITY_NONE;
+    huart1.Init.Mode = UART_MODE_TX_RX;
+    huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+    huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+    if (HAL_UART_Init(&huart1) != HAL_OK)
+    {
+        Error_Handler();
+    }
+}
+
 static void MX_USART2_UART_Init(void)
 {
     huart2.Instance = USART2;
@@ -352,6 +484,11 @@ static void MX_GPIO_Init(void)
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
     HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
+
+    GPIO_InitStruct.Pin = BLE_STATE_Pin;
+    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+    HAL_GPIO_Init(BLE_STATE_GPIO_Port, &GPIO_InitStruct);
 }
 
 void Error_Handler(void)
