@@ -200,4 +200,11 @@ void SysTick_Handler(void)
 
 /* USER CODE BEGIN 1 */
 
+extern DMA_HandleTypeDef hdma_usart1_rx;
+
+void DMA2_Stream2_IRQHandler(void)
+{
+    HAL_DMA_IRQHandler(&hdma_usart1_rx);
+}
+
 /* USER CODE END 1 */

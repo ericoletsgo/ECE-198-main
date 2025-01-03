@@ -17,6 +17,7 @@ static bool BLE_SendATCommand(BLE_Handle_t *handle, const char *cmd,
 static bool BLE_ConfigureModule(BLE_Handle_t *handle);
 static bool BLE_ReadStatePinRaw(BLE_Handle_t *handle);
 static void BLE_SetState(BLE_Handle_t *handle, BLE_State_t new_state);
+static void BLE_StartDMA(BLE_Handle_t *handle);
 
 /* ============================================================================
  * Public Functions - Init / Control
@@ -48,10 +49,12 @@ BLE_Error_t BLE_Init(BLE_Handle_t *handle, UART_HandleTypeDef *huart,
         /* Non-fatal -- module may already be configured or not present */
         handle->last_error = BLE_ERR_CONFIG_FAIL;
         BLE_SetState(handle, BLE_STATE_ADVERTISING);
+        BLE_StartDMA(handle);
         return BLE_ERR_CONFIG_FAIL;
     }
 
     BLE_SetState(handle, BLE_STATE_ADVERTISING);
+    BLE_StartDMA(handle);
     return BLE_OK;
 }
 
@@ -63,7 +66,9 @@ BLE_Error_t BLE_Reset(BLE_Handle_t *handle)
 
     handle->at_response_index = 0;
     handle->at_response_ready = false;
+    handle->dma_rx_last_pos = 0;
 
+    HAL_UART_AbortReceive(handle->huart);
     Comm_Init(&handle->comm, handle->huart);
 
     BLE_SetState(handle, BLE_STATE_CONFIGURING);
@@ -71,10 +76,12 @@ BLE_Error_t BLE_Reset(BLE_Handle_t *handle)
     if (!BLE_ConfigureModule(handle)) {
         handle->last_error = BLE_ERR_CONFIG_FAIL;
         BLE_SetState(handle, BLE_STATE_ADVERTISING);
+        BLE_StartDMA(handle);
         return BLE_ERR_CONFIG_FAIL;
     }
 
     BLE_SetState(handle, BLE_STATE_ADVERTISING);
+    BLE_StartDMA(handle);
     return BLE_OK;
 }
 
@@ -128,11 +135,26 @@ void BLE_Process(BLE_Handle_t *handle)
             break;
     }
 
-    /* Poll USART1 RX for incoming bytes */
-    {
-        uint8_t rx_byte;
-        while (HAL_UART_Receive(handle->huart, &rx_byte, 1, 0) == HAL_OK) {
-            BLE_ProcessRxByte(handle, rx_byte);
+    /* Drain new bytes from DMA circular buffer */
+    if (handle->huart->hdmarx != NULL) {
+        uint16_t current_pos = BLE_DMA_RX_BUF_SIZE -
+                               (uint16_t)__HAL_DMA_GET_COUNTER(handle->huart->hdmarx);
+
+        if (current_pos != handle->dma_rx_last_pos) {
+            if (current_pos > handle->dma_rx_last_pos) {
+                for (uint16_t i = handle->dma_rx_last_pos; i < current_pos; i++) {
+                    BLE_ProcessRxByte(handle, handle->dma_rx_buf[i]);
+                }
+            } else {
+                /* Buffer wrapped around */
+                for (uint16_t i = handle->dma_rx_last_pos; i < BLE_DMA_RX_BUF_SIZE; i++) {
+                    BLE_ProcessRxByte(handle, handle->dma_rx_buf[i]);
+                }
+                for (uint16_t i = 0; i < current_pos; i++) {
+                    BLE_ProcessRxByte(handle, handle->dma_rx_buf[i]);
+                }
+            }
+            handle->dma_rx_last_pos = current_pos;
             handle->last_rx_activity = now;
         }
     }
@@ -343,6 +365,13 @@ void BLE_ResetStats(BLE_Handle_t *handle)
 /* ============================================================================
  * Private Functions
  * ============================================================================ */
+
+static void BLE_StartDMA(BLE_Handle_t *handle)
+{
+    handle->dma_rx_last_pos = 0;
+    memset(handle->dma_rx_buf, 0, BLE_DMA_RX_BUF_SIZE);
+    HAL_UART_Receive_DMA(handle->huart, handle->dma_rx_buf, BLE_DMA_RX_BUF_SIZE);
+}
 
 static bool BLE_ReadStatePinRaw(BLE_Handle_t *handle)
 {

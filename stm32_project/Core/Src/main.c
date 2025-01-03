@@ -15,6 +15,7 @@
 I2C_HandleTypeDef hi2c1;
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
+DMA_HandleTypeDef hdma_usart1_rx;
 
 BME680_Handle_t bme680_dev;
 DataAcq_Handle_t dataacq_handle;

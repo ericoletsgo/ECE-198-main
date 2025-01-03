@@ -174,6 +174,27 @@ void HAL_UART_MspInit(UART_HandleTypeDef* huart)
     GPIO_InitStruct.Alternate = GPIO_AF7_USART1;
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
+    /* DMA2 clock enable */
+    __HAL_RCC_DMA2_CLK_ENABLE();
+
+    /* USART1 RX: DMA2 Stream2 Channel4 (circular) */
+    extern DMA_HandleTypeDef hdma_usart1_rx;
+    hdma_usart1_rx.Instance                 = DMA2_Stream2;
+    hdma_usart1_rx.Init.Channel             = DMA_CHANNEL_4;
+    hdma_usart1_rx.Init.Direction           = DMA_PERIPH_TO_MEMORY;
+    hdma_usart1_rx.Init.PeriphInc           = DMA_PINC_DISABLE;
+    hdma_usart1_rx.Init.MemInc              = DMA_MINC_ENABLE;
+    hdma_usart1_rx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
+    hdma_usart1_rx.Init.MemDataAlignment    = DMA_MDATAALIGN_BYTE;
+    hdma_usart1_rx.Init.Mode                = DMA_CIRCULAR;
+    hdma_usart1_rx.Init.Priority            = DMA_PRIORITY_LOW;
+    hdma_usart1_rx.Init.FIFOMode            = DMA_FIFOMODE_DISABLE;
+    HAL_DMA_Init(&hdma_usart1_rx);
+    __HAL_LINKDMA(huart, hdmarx, hdma_usart1_rx);
+
+    HAL_NVIC_SetPriority(DMA2_Stream2_IRQn, 0, 0);
+    HAL_NVIC_EnableIRQ(DMA2_Stream2_IRQn);
+
   }
   else if(huart->Instance==USART2)
   {
@@ -221,6 +242,9 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* huart)
     PA10    ------> USART1_RX
     */
     HAL_GPIO_DeInit(GPIOA, GPIO_PIN_9|GPIO_PIN_10);
+
+    extern DMA_HandleTypeDef hdma_usart1_rx;
+    HAL_DMA_DeInit(&hdma_usart1_rx);
 
   }
   else if(huart->Instance==USART2)

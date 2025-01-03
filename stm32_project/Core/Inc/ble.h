@@ -20,6 +20,7 @@
 #define BLE_KEEPALIVE_INTERVAL_MS   10000
 #define BLE_RECONNECT_INTERVAL_MS   5000
 #define BLE_DEVICE_NAME             "AQM-WEARABLE"
+#define BLE_DMA_RX_BUF_SIZE         64
 
 typedef enum {
     BLE_STATE_UNINITIALIZED = 0,
@@ -80,6 +81,10 @@ typedef struct {
     uint8_t at_response[BLE_AT_RESPONSE_SIZE];
     uint8_t at_response_index;
     bool at_response_ready;
+
+    /* DMA RX circular buffer */
+    uint8_t dma_rx_buf[BLE_DMA_RX_BUF_SIZE];
+    uint16_t dma_rx_last_pos;
 
     /* Statistics */
     BLE_Stats_t stats;
