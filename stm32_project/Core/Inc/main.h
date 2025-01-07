@@ -39,6 +39,10 @@ void Error_Handler(void);
 #define BLE_STATE_Pin           GPIO_PIN_5
 #define BLE_STATE_GPIO_Port     GPIOB
 
+/* Battery ADC Pin (PA1, through 2:1 voltage divider) */
+#define BATT_ADC_Pin            GPIO_PIN_1
+#define BATT_ADC_GPIO_Port      GPIOA
+
 /* I2C1 Pins if using different cfg */
 // #define I2C1_SCL_Pin         GPIO_PIN_6
 // #define I2C1_SCL_GPIO_Port   GPIOB

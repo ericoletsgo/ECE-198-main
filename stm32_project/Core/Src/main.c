@@ -3,6 +3,7 @@
 #include "data_acquisition.h"
 #include "communication.h"
 #include "ble.h"
+#include "battery.h"
 #include "display.h"
 #include <stdio.h>
 #include <string.h>
@@ -16,11 +17,13 @@ I2C_HandleTypeDef hi2c1;
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 DMA_HandleTypeDef hdma_usart1_rx;
+ADC_HandleTypeDef hadc1;
 
 BME680_Handle_t bme680_dev;
 DataAcq_Handle_t dataacq_handle;
 Comm_Handle_t comm_handle;
 BLE_Handle_t ble_handle;
+Battery_Handle_t battery_handle;
 Display_Handle_t display_handle;
 
 static ProcessedData_t sensor_data;
@@ -30,6 +33,7 @@ static bool ble_available = false;
 
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_ADC1_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_I2C1_Init(void);
@@ -46,6 +50,7 @@ int main(void)
     HAL_Init();
     SystemClock_Config();
     MX_GPIO_Init();
+    MX_ADC1_Init();
     MX_USART1_UART_Init();
     MX_USART2_UART_Init();
     MX_I2C1_Init();
@@ -64,6 +69,7 @@ int main(void)
 #endif
         
         LED_Update();
+        Battery_Update(&battery_handle);
         HAL_Delay(10);
     }
 }
@@ -77,6 +83,12 @@ static bool System_Init(void)
         return false;
     }
     PrintStartupInfo();
+
+    Battery_Init(&battery_handle, &hadc1);
+    Comm_Printf(&comm_handle, "Battery: %u%% (%u mV)%s\r\n",
+                Battery_GetPercent(&battery_handle),
+                Battery_GetVoltage(&battery_handle),
+                Battery_IsLow(&battery_handle) ? " [LOW]" : "");
 
     Comm_Printf(&comm_handle, "Initializing BLE (HM-10)...\r\n");
     BLE_Error_t ble_err = BLE_Init(&ble_handle, &huart1,
@@ -165,6 +177,11 @@ static void Application_FixedDevice(void)
                 if (!BLE_SendSensorData(&ble_handle, &sensor_data)) {
                     Comm_Printf(&comm_handle, "[BLE] Warning: Failed to send data\r\n");
                 }
+            }
+
+            if (Battery_IsLow(&battery_handle)) {
+                Comm_Printf(&comm_handle, "WARNING: Low battery %u%%\r\n",
+                            Battery_GetPercent(&battery_handle));
             }
         } else {
             Comm_Printf(&comm_handle, "ERROR: Failed to read sensor data\r\n");
@@ -428,6 +445,34 @@ static void MX_I2C1_Init(void)
     hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
     if (HAL_I2C_Init(&hi2c1) != HAL_OK)
     {
+        Error_Handler();
+    }
+}
+
+static void MX_ADC1_Init(void)
+{
+    ADC_ChannelConfTypeDef sConfig = {0};
+
+    hadc1.Instance                   = ADC1;
+    hadc1.Init.ClockPrescaler        = ADC_CLOCK_SYNC_PCLK_DIV4;
+    hadc1.Init.Resolution            = ADC_RESOLUTION_12B;
+    hadc1.Init.ScanConvMode          = DISABLE;
+    hadc1.Init.ContinuousConvMode    = DISABLE;
+    hadc1.Init.DiscontinuousConvMode = DISABLE;
+    hadc1.Init.ExternalTrigConvEdge  = ADC_EXTERNALTRIGCONVEDGE_NONE;
+    hadc1.Init.ExternalTrigConv      = ADC_SOFTWARE_START;
+    hadc1.Init.DataAlign             = ADC_DATAALIGN_RIGHT;
+    hadc1.Init.NbrOfConversion       = 1;
+    hadc1.Init.DMAContinuousRequests = DISABLE;
+    hadc1.Init.EOCSelection          = ADC_EOC_SINGLE_CONV;
+    if (HAL_ADC_Init(&hadc1) != HAL_OK) {
+        Error_Handler();
+    }
+
+    sConfig.Channel      = ADC_CHANNEL_1;  /* PA1 */
+    sConfig.Rank         = 1;
+    sConfig.SamplingTime = ADC_SAMPLETIME_56CYCLES;
+    if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK) {
         Error_Handler();
     }
 }
