@@ -4,6 +4,7 @@
 #include "communication.h"
 #include "ble.h"
 #include "battery.h"
+#include "config.h"
 #include "display.h"
 #include <stdio.h>
 #include <string.h>
@@ -24,6 +25,7 @@ DataAcq_Handle_t dataacq_handle;
 Comm_Handle_t comm_handle;
 BLE_Handle_t ble_handle;
 Battery_Handle_t battery_handle;
+Config_t app_config;
 Display_Handle_t display_handle;
 
 static ProcessedData_t sensor_data;
@@ -83,6 +85,12 @@ static bool System_Init(void)
         return false;
     }
     PrintStartupInfo();
+
+    Config_Init(&app_config);
+    Comm_Printf(&comm_handle, "Config: AQI alert=%u, Temp max=%d C, Hum max=%u%%\r\n",
+                app_config.aqi_alert,
+                app_config.temp_max / 10,
+                app_config.humidity_max / 10);
 
     Battery_Init(&battery_handle, &hadc1);
     Comm_Printf(&comm_handle, "Battery: %u%% (%u mV)%s\r\n",
@@ -183,6 +191,27 @@ static void Application_FixedDevice(void)
                 Comm_Printf(&comm_handle, "WARNING: Low battery %u%%\r\n",
                             Battery_GetPercent(&battery_handle));
             }
+
+            /* Alert threshold checks */
+            bool alert = false;
+            if (sensor_data.aqi >= app_config.aqi_alert) {
+                Comm_Printf(&comm_handle, "[ALERT] AQI %u >= threshold %u\r\n",
+                            sensor_data.aqi, app_config.aqi_alert);
+                alert = true;
+            }
+            if ((int16_t)(sensor_data.temperature * 10) >= app_config.temp_max) {
+                Comm_Printf(&comm_handle, "[ALERT] Temp %.1f C >= threshold %d C\r\n",
+                            sensor_data.temperature, app_config.temp_max / 10);
+                alert = true;
+            }
+            if ((uint16_t)(sensor_data.humidity * 10) >= app_config.humidity_max) {
+                Comm_Printf(&comm_handle, "[ALERT] Humidity %.1f%% >= threshold %u%%\r\n",
+                            sensor_data.humidity, app_config.humidity_max / 10);
+                alert = true;
+            }
+            if (alert) {
+                LED_SetPattern(LED_PATTERN_TRIPLE_BLINK);
+            }
         } else {
             Comm_Printf(&comm_handle, "ERROR: Failed to read sensor data\r\n");
             sensor_data.data_valid = false;
@@ -281,7 +310,20 @@ static void HandleReceivedPacket(void)
                                         Comm_SendPacket(&comm_handle, PACKET_TYPE_STATUS, status_data, 4);
                                     }
                                     break;
-                                    
+
+                                case CMD_SET_CONFIG:
+                                    if (param_len >= 4) {
+                                        app_config.aqi_alert    = (uint16_t)(params[0] | (params[1] << 8));
+                                        app_config.temp_max     = (int16_t)(params[2] * 10);
+                                        app_config.humidity_max = (uint16_t)(params[3] * 10);
+                                        Config_Save(&app_config);
+                                        Comm_Printf(&comm_handle, "Config saved: AQI=%u Temp=%dC Hum=%u%%\r\n",
+                                                    app_config.aqi_alert,
+                                                    app_config.temp_max / 10,
+                                                    app_config.humidity_max / 10);
+                                    }
+                                    break;
+
                                 default:
                                     Comm_Printf(&comm_handle, "Unknown command: 0x%02X\r\n", cmd);
                                     break;
@@ -356,6 +398,19 @@ static void HandleReceivedBLEPacket(void)
                             BLE_SendPacket(&ble_handle, PACKET_TYPE_STATUS, status_data, 4);
                         }
                         break;
+
+                        case CMD_SET_CONFIG:
+                            if (param_len >= 4) {
+                                app_config.aqi_alert    = (uint16_t)(params[0] | (params[1] << 8));
+                                app_config.temp_max     = (int16_t)(params[2] * 10);
+                                app_config.humidity_max = (uint16_t)(params[3] * 10);
+                                Config_Save(&app_config);
+                                Comm_Printf(&comm_handle, "[BLE] Config saved: AQI=%u Temp=%dC Hum=%u%%\r\n",
+                                            app_config.aqi_alert,
+                                            app_config.temp_max / 10,
+                                            app_config.humidity_max / 10);
+                            }
+                            break;
 
                         default:
                             Comm_Printf(&comm_handle, "[BLE] Unknown command: 0x%02X\r\n", cmd);

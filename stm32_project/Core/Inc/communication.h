@@ -33,7 +33,9 @@ typedef enum {
     CMD_SET_SAMPLE_RATE = 0x02,
     CMD_CALIBRATE = 0x03,
     CMD_RESET = 0x04,
-    CMD_GET_STATUS = 0x05
+    CMD_GET_STATUS = 0x05,
+    CMD_SET_CONFIG = 0x06,
+    CMD_GET_LOG = 0x07
 } CommandType_t;
 
 typedef struct __attribute__((packed)) {
