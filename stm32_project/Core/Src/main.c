@@ -224,6 +224,18 @@ static void Application_FixedDevice(void)
         BLE_Process(&ble_handle);
         HandleReceivedBLEPacket();
     }
+
+#if SLEEP_ENABLE
+    /* Sleep until next SysTick if next sample is still far away and BLE is idle */
+    {
+        uint32_t now = HAL_GetTick();
+        uint32_t time_to_next = SENSOR_SAMPLE_INTERVAL_MS -
+                                (now - last_sample_time);
+        if (time_to_next > 50 && !BLE_IsConnected(&ble_handle)) {
+            HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);
+        }
+    }
+#endif
 }
 
 static void Application_WearableDevice(void)
@@ -260,6 +272,17 @@ static void Application_WearableDevice(void)
             }
         }
     }
+
+#if SLEEP_ENABLE
+    /* Sleep until next SysTick if next display refresh is still far away */
+    {
+        uint32_t now = HAL_GetTick();
+        uint32_t elapsed = now - last_display_update;
+        if (elapsed < 950) {
+            HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);
+        }
+    }
+#endif
 }
 
 static void HandleReceivedPacket(void)

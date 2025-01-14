@@ -43,6 +43,9 @@ void Error_Handler(void);
 #define BATT_ADC_Pin            GPIO_PIN_1
 #define BATT_ADC_GPIO_Port      GPIOA
 
+/* Set to 0 to disable sleep modes for debugging */
+#define SLEEP_ENABLE            1
+
 /* I2C1 Pins if using different cfg */
 // #define I2C1_SCL_Pin         GPIO_PIN_6
 // #define I2C1_SCL_GPIO_Port   GPIOB
