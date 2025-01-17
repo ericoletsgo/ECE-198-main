@@ -5,6 +5,7 @@
 #include "ble.h"
 #include "battery.h"
 #include "config.h"
+#include "datalog.h"
 #include "display.h"
 #include <stdio.h>
 #include <string.h>
@@ -92,6 +93,12 @@ static bool System_Init(void)
                 app_config.temp_max / 10,
                 app_config.humidity_max / 10);
 
+    if (!DataLog_Init()) {
+        Comm_Printf(&comm_handle, "Warning: DataLog init failed\r\n");
+    } else {
+        Comm_Printf(&comm_handle, "DataLog: %lu records stored\r\n", DataLog_GetCount());
+    }
+
     Battery_Init(&battery_handle, &hadc1);
     Comm_Printf(&comm_handle, "Battery: %u%% (%u mV)%s\r\n",
                 Battery_GetPercent(&battery_handle),
@@ -172,9 +179,11 @@ static void Application_FixedDevice(void)
         
         if (DataAcq_GetData(&dataacq_handle, &sensor_data)) {
             DataAcq_ApplyTemperatureOffset(&sensor_data, TEMPERATURE_OFFSET);
-            
+
+            DataLog_Write(&sensor_data, 0x01);
+
             LED_SetPatternFromAQI(sensor_data.aqi_category);
-            
+
             Comm_PrintSensorData(&comm_handle, &sensor_data);
             
             if (!Comm_SendSensorData(&comm_handle, &sensor_data)) {
@@ -347,6 +356,24 @@ static void HandleReceivedPacket(void)
                                     }
                                     break;
 
+                                case CMD_GET_LOG:
+                                    {
+                                        uint32_t count = DataLog_GetCount();
+                                        uint32_t dump = (count > 20) ? 20 : count;
+                                        Comm_Printf(&comm_handle, "DataLog: %lu records, last %lu:\r\n", count, dump);
+                                        for (uint32_t i = count - dump; i < count; i++) {
+                                            DataLog_Record_t rec;
+                                            if (DataLog_Read(i, &rec)) {
+                                                Comm_Printf(&comm_handle, "  [%lu] t=%lu T=%d.%u H=%u.%u AQI=%u\r\n",
+                                                    i, rec.timestamp,
+                                                    rec.temperature / 10, (uint16_t)(rec.temperature < 0 ? -rec.temperature : rec.temperature) % 10,
+                                                    rec.humidity / 10, rec.humidity % 10,
+                                                    rec.aqi);
+                                            }
+                                        }
+                                    }
+                                    break;
+
                                 default:
                                     Comm_Printf(&comm_handle, "Unknown command: 0x%02X\r\n", cmd);
                                     break;
@@ -432,6 +459,24 @@ static void HandleReceivedBLEPacket(void)
                                             app_config.aqi_alert,
                                             app_config.temp_max / 10,
                                             app_config.humidity_max / 10);
+                            }
+                            break;
+
+                        case CMD_GET_LOG:
+                            {
+                                uint32_t count = DataLog_GetCount();
+                                uint32_t dump = (count > 20) ? 20 : count;
+                                Comm_Printf(&comm_handle, "[BLE] DataLog: %lu records, last %lu:\r\n", count, dump);
+                                for (uint32_t i = count - dump; i < count; i++) {
+                                    DataLog_Record_t rec;
+                                    if (DataLog_Read(i, &rec)) {
+                                        Comm_Printf(&comm_handle, "  [%lu] t=%lu T=%d.%u H=%u.%u AQI=%u\r\n",
+                                            i, rec.timestamp,
+                                            rec.temperature / 10, (uint16_t)(rec.temperature < 0 ? -rec.temperature : rec.temperature) % 10,
+                                            rec.humidity / 10, rec.humidity % 10,
+                                            rec.aqi);
+                                    }
+                                }
                             }
                             break;
 
