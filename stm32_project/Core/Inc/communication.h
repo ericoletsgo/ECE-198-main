@@ -38,11 +38,18 @@ typedef enum {
     CMD_GET_LOG = 0x07
 } CommandType_t;
 
+#ifndef DEVICE_ID
+#define DEVICE_ID   0x01
+#endif
+
+#define MESH_MAX_DEVICES    4
+
 typedef struct __attribute__((packed)) {
     uint8_t start_byte;
     uint8_t packet_type;
     uint8_t payload_length;
     uint8_t sequence_num;
+    uint8_t device_id;
 } CommPacketHeader_t;
 
 /**
@@ -114,6 +121,7 @@ typedef struct {
 typedef struct {
     PacketType_t type;
     uint8_t sequence;
+    uint8_t source_id;
     uint8_t payload[COMM_MAX_PAYLOAD_SIZE];
     uint8_t payload_length;
     bool valid;

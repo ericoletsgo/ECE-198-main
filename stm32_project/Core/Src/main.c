@@ -34,6 +34,12 @@ static uint32_t last_sample_time = 0;
 static bool system_initialized = false;
 static bool ble_available = false;
 
+/* Mesh: per-device data map for wearable */
+static ProcessedData_t mesh_data[MESH_MAX_DEVICES];
+static uint8_t mesh_device_ids[MESH_MAX_DEVICES];
+static uint8_t mesh_device_count = 0;
+static uint8_t mesh_display_idx = 0;
+
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_ADC1_Init(void);
@@ -47,6 +53,7 @@ static void Application_WearableDevice(void);
 static void HandleReceivedPacket(void);
 static void HandleReceivedBLEPacket(void);
 static void PrintStartupInfo(void);
+static void Mesh_StoreData(uint8_t device_id, const ProcessedData_t *data);
 
 int main(void)
 {
@@ -257,16 +264,27 @@ static void Application_WearableDevice(void)
     }
 
     static uint32_t last_display_update = 0;
+    static uint32_t last_device_cycle = 0;
     uint32_t current_time = HAL_GetTick();
+
+    /* Cycle to next mesh device every 5 seconds */
+    if (mesh_device_count > 1 && current_time - last_device_cycle >= 5000) {
+        last_device_cycle = current_time;
+        mesh_display_idx = (mesh_display_idx + 1) % mesh_device_count;
+    }
 
     if (current_time - last_display_update >= 1000) {
         last_display_update = current_time;
 
-        if (sensor_data.data_valid) {
-            LED_SetPatternFromAQI(sensor_data.aqi_category);
+        ProcessedData_t *display_data = (mesh_device_count > 0)
+                                        ? &mesh_data[mesh_display_idx]
+                                        : &sensor_data;
+
+        if (display_data->data_valid) {
+            LED_SetPatternFromAQI(display_data->aqi_category);
 
             if (display_handle.initialized) {
-                Display_ShowSensorData(&display_handle, &sensor_data);
+                Display_ShowSensorData(&display_handle, display_data);
             }
         } else {
             if (display_handle.initialized) {
@@ -303,7 +321,8 @@ static void HandleReceivedPacket(void)
             switch (packet.type) {
                 case PACKET_TYPE_SENSOR_DATA:
                     if (Comm_ParseSensorData(&packet, &sensor_data)) {
-                        Comm_Printf(&comm_handle, "Received sensor data packet\r\n");
+                        Mesh_StoreData(packet.source_id, &sensor_data);
+                        Comm_Printf(&comm_handle, "Received sensor data from device 0x%02X\r\n", packet.source_id);
                         Comm_SendAck(&comm_handle, packet.sequence);
                     } else {
                         Comm_Printf(&comm_handle, "Failed to parse sensor data\r\n");
@@ -410,7 +429,8 @@ static void HandleReceivedBLEPacket(void)
         switch (packet.type) {
             case PACKET_TYPE_SENSOR_DATA:
                 if (Comm_ParseSensorData(&packet, &sensor_data)) {
-                    Comm_Printf(&comm_handle, "[BLE] Received sensor data\r\n");
+                    Mesh_StoreData(packet.source_id, &sensor_data);
+                    Comm_Printf(&comm_handle, "[BLE] Received sensor data from device 0x%02X\r\n", packet.source_id);
                     BLE_SendAck(&ble_handle, packet.sequence);
                 } else {
                     Comm_Printf(&comm_handle, "[BLE] Failed to parse sensor data\r\n");
@@ -500,6 +520,23 @@ static void HandleReceivedBLEPacket(void)
                 Comm_Printf(&comm_handle, "[BLE] Unknown packet: 0x%02X\r\n", packet.type);
                 break;
         }
+    }
+}
+
+static void Mesh_StoreData(uint8_t device_id, const ProcessedData_t *data)
+{
+    for (uint8_t i = 0; i < mesh_device_count; i++) {
+        if (mesh_device_ids[i] == device_id) {
+            mesh_data[i] = *data;
+            return;
+        }
+    }
+    if (mesh_device_count < MESH_MAX_DEVICES) {
+        mesh_device_ids[mesh_device_count] = device_id;
+        mesh_data[mesh_device_count] = *data;
+        mesh_device_count++;
+        Comm_Printf(&comm_handle, "Mesh: added device 0x%02X (%u total)\r\n",
+                    device_id, mesh_device_count);
     }
 }
 

@@ -139,6 +139,7 @@ bool Comm_SendPacket(Comm_Handle_t *handle, PacketType_t type, uint8_t *payload,
     header.packet_type = (uint8_t)type;
     header.payload_length = length;
     header.sequence_num = handle->tx_sequence++;
+    header.device_id = DEVICE_ID;
     
     memcpy(&tx_buffer[packet_index], &header, sizeof(CommPacketHeader_t));
     packet_index += sizeof(CommPacketHeader_t);
@@ -274,6 +275,7 @@ bool Comm_GetPacket(Comm_Handle_t *handle, ReceivedPacket_t *packet)
     
     packet->type = (PacketType_t)header->packet_type;
     packet->sequence = header->sequence_num;
+    packet->source_id = header->device_id;
     packet->payload_length = header->payload_length;
     
     if (packet->payload_length > 0) {
