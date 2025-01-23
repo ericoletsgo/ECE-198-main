@@ -6,6 +6,7 @@
 #include "battery.h"
 #include "config.h"
 #include "datalog.h"
+#include "ota.h"
 #include "display.h"
 #include <stdio.h>
 #include <string.h>
@@ -28,6 +29,7 @@ BLE_Handle_t ble_handle;
 Battery_Handle_t battery_handle;
 Config_t app_config;
 Display_Handle_t display_handle;
+OTA_Handle_t ota_handle;
 
 static ProcessedData_t sensor_data;
 static uint32_t last_sample_time = 0;
@@ -105,6 +107,9 @@ static bool System_Init(void)
     } else {
         Comm_Printf(&comm_handle, "DataLog: %lu records stored\r\n", DataLog_GetCount());
     }
+
+    OTA_Init(&ota_handle);
+    Comm_Printf(&comm_handle, "OTA ready (sector 5 staging)\r\n");
 
     Battery_Init(&battery_handle, &hadc1);
     Comm_Printf(&comm_handle, "Battery: %u%% (%u mV)%s\r\n",
@@ -514,6 +519,21 @@ static void HandleReceivedBLEPacket(void)
 
             case PACKET_TYPE_NACK:
                 Comm_Printf(&comm_handle, "[BLE] NACK for seq %d\r\n", packet.payload[0]);
+                break;
+
+            case (PacketType_t)PACKET_TYPE_OTA_START:
+            case (PacketType_t)PACKET_TYPE_OTA_DATA:
+            case (PacketType_t)PACKET_TYPE_OTA_END:
+            case (PacketType_t)PACKET_TYPE_OTA_ABORT:
+                if (OTA_HandlePacket(&ota_handle, &packet)) {
+                    Comm_Printf(&comm_handle, "[BLE] OTA progress: %u%%\r\n",
+                                OTA_GetProgress(&ota_handle));
+                    BLE_SendAck(&ble_handle, packet.sequence);
+                } else {
+                    Comm_Printf(&comm_handle, "[BLE] OTA error (state=%d)\r\n",
+                                ota_handle.state);
+                    BLE_SendNack(&ble_handle, packet.sequence, 0x02);
+                }
                 break;
 
             default:
