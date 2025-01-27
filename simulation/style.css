@@ -1,0 +1,243 @@
+:root {
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --border: #2a2d3a;
+  --accent: #4f8ef7;
+  --accent2: #34d399;
+  --warn: #f59e0b;
+  --danger: #ef4444;
+  --text: #e2e8f0;
+  --muted: #64748b;
+  --oled-bg: #000;
+  --oled-px: #ffffff;
+}
+body.light {
+  --bg: #f1f5f9;
+  --surface: #ffffff;
+  --border: #e2e8f0;
+  --text: #1e293b;
+  --muted: #94a3b8;
+  --oled-bg: #111;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  font-size: 14px;
+}
+h1 { font-size: 1.2rem; font-weight: 700; letter-spacing: .02em; }
+h2 { font-size: .9rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 12px; }
+
+#app {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ── top bar ── */
+#topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 20px;
+}
+#topbar .controls { display: flex; gap: 10px; align-items: center; }
+button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-size: .82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity .15s;
+}
+button:hover { opacity: .85; }
+button.secondary { background: var(--border); color: var(--text); }
+button.danger { background: var(--danger); }
+
+/* ── main grid ── */
+#grid {
+  display: grid;
+  grid-template-columns: 1fr 200px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+/* ── panels ── */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+}
+
+/* ── fixed device ── */
+.metric-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.metric-row:last-child { border-bottom: none; }
+.metric-label { color: var(--muted); font-size: .82rem; }
+.metric-value { font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.aqi-good    { color: var(--accent2); }
+.aqi-moderate { color: var(--warn); }
+.aqi-bad     { color: var(--danger); }
+
+.sleep-badge {
+  display: inline-block;
+  font-size: .7rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: var(--border);
+  color: var(--muted);
+  margin-left: 6px;
+  transition: background .3s;
+}
+.sleep-badge.sleeping { background: #1e3a5f; color: var(--accent); }
+
+/* battery bar */
+.batt-bar-bg {
+  height: 8px;
+  background: var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 6px;
+}
+.batt-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--accent2);
+  transition: width .4s;
+}
+.batt-bar-fill.low { background: var(--danger); }
+
+/* device selector */
+.device-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.device-btn {
+  background: var(--border);
+  color: var(--muted);
+  border: 2px solid transparent;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: .75rem;
+  cursor: pointer;
+}
+.device-btn.active { border-color: var(--accent); color: var(--accent); }
+
+/* interval slider */
+.slider-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: .82rem; color: var(--muted); }
+input[type=range] { flex: 1; accent-color: var(--accent); }
+
+/* log table */
+.log-table { width: 100%; border-collapse: collapse; font-size: .75rem; margin-top: 8px; }
+.log-table th { color: var(--muted); font-weight: 600; text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+.log-table td { padding: 3px 6px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.log-table tr:hover td { background: var(--border); }
+
+/* ── BLE link panel ── */
+#ble-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 12px;
+}
+#ble-line {
+  width: 4px;
+  height: 80px;
+  background: var(--border);
+  border-radius: 2px;
+  position: relative;
+  overflow: hidden;
+}
+#ble-line::after {
+  content: '';
+  position: absolute;
+  width: 100%;
+  height: 30%;
+  background: var(--accent);
+  border-radius: 2px;
+  animation: ble-flow 1.2s linear infinite;
+}
+#ble-line.disconnected::after { display: none; }
+@keyframes ble-flow {
+  0%   { top: -30%; }
+  100% { top: 110%; }
+}
+.ble-stat { font-size: .75rem; color: var(--muted); text-align: center; }
+.ble-stat span { display: block; font-size: 1rem; font-weight: 700; color: var(--text); }
+.rssi-bar-bg { width: 60px; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+.rssi-bar-fill { height: 100%; background: var(--accent2); border-radius: 3px; transition: width .5s; }
+#connect-btn.connected { background: var(--danger); }
+
+/* ── wearable panel ── */
+#oled-canvas-wrap {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+canvas#oled {
+  border: 3px solid #222;
+  border-radius: 6px;
+  image-rendering: pixelated;
+}
+.wearable-meta { display: flex; justify-content: space-between; font-size: .78rem; color: var(--muted); margin-bottom: 8px; }
+
+/* alert flash */
+@keyframes alert-flash {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: .3; }
+}
+.alert-active { animation: alert-flash .5s ease-in-out infinite; }
+
+/* ── controls bar ── */
+#controls-bar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 20px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+.ctrl-group label { display: block; font-size: .78rem; color: var(--muted); margin-bottom: 4px; }
+.ctrl-group .val { font-weight: 700; color: var(--accent); }
+
+/* OTA progress */
+#ota-bar-bg {
+  height: 10px;
+  background: var(--border);
+  border-radius: 5px;
+  overflow: hidden;
+  margin-top: 6px;
+}
+#ota-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 5px;
+  width: 0%;
+  transition: width .2s;
+}
+
+/* ── chart ── */
+#chart-panel { grid-column: 1 / -1; }
+#chart-panel canvas { max-height: 200px; }
+
+/* ── responsive ── */
+@media (max-width: 800px) {
+  #grid { grid-template-columns: 1fr; }
+}

@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AQM System — Web Simulation</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+<div id="app">
+
+  <!-- Top bar -->
+  <div id="topbar">
+    <h1>Air Quality Monitor &mdash; System Simulation</h1>
+    <div class="controls">
+      <button id="reset-btn" class="secondary">Reset All</button>
+      <button id="theme-btn">☀️ Light</button>
+    </div>
+  </div>
+
+  <!-- Main 3-column grid -->
+  <div id="grid">
+
+    <!-- ── Fixed Device Panel ── -->
+    <div class="panel" id="fixed-panel">
+      <h2>Fixed Device (Sensor)</h2>
+
+      <!-- Device selector -->
+      <div class="device-row">
+        <button class="device-btn active" data-dev="0">Device 1</button>
+        <button class="device-btn"        data-dev="1">Device 2</button>
+        <button class="device-btn"        data-dev="2">Device 3</button>
+        <button class="device-btn"        data-dev="3">Device 4</button>
+      </div>
+
+      <!-- Metrics -->
+      <div class="metric-row">
+        <span class="metric-label">Temperature</span>
+        <span class="metric-value" id="f-temp">—</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">Humidity</span>
+        <span class="metric-value" id="f-hum">—</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">Pressure</span>
+        <span class="metric-value" id="f-pres">—</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">Gas Resistance</span>
+        <span class="metric-value" id="f-gas">—</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">AQI
+          <span id="alert-indicator" style="display:none;color:#ef4444;margin-left:4px;font-size:.8rem;">⚠ ALERT</span>
+        </span>
+        <span class="metric-value aqi-good" id="f-aqi">—</span>
+      </div>
+
+      <!-- Battery -->
+      <div class="metric-row" style="flex-direction:column;align-items:stretch;">
+        <div style="display:flex;justify-content:space-between;">
+          <span class="metric-label">Battery</span>
+          <span class="metric-value" id="f-batt-pct">—</span>
+        </div>
+        <div class="batt-bar-bg"><div class="batt-bar-fill" id="f-batt-fill" style="width:80%"></div></div>
+      </div>
+
+      <!-- Sleep state -->
+      <div style="margin-top:10px;font-size:.82rem;color:var(--muted);">
+        Power state: <span id="sleep-badge" class="sleep-badge">AWAKE</span>
+      </div>
+
+      <!-- Sample interval -->
+      <div class="slider-row" style="margin-top:12px;">
+        <span>Sample interval:</span>
+        <input type="range" id="interval-slider" min="1" max="10" value="3" step="1"/>
+        <span id="interval-val">3s</span>
+      </div>
+
+      <!-- Mesh active toggles -->
+      <div style="margin-top:14px;">
+        <h2>Mesh Active Devices</h2>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+          <label><input type="checkbox" class="mesh-toggle" data-dev="0" checked /> D1</label>
+          <label><input type="checkbox" class="mesh-toggle" data-dev="1" checked /> D2</label>
+          <label><input type="checkbox" class="mesh-toggle" data-dev="2"          /> D3</label>
+          <label><input type="checkbox" class="mesh-toggle" data-dev="3"          /> D4</label>
+        </div>
+      </div>
+
+      <!-- Data log -->
+      <div style="margin-top:16px;">
+        <h2>Flash Data Log (last 20)</h2>
+        <table class="log-table">
+          <thead><tr><th>Time</th><th>Dev</th><th>T °C</th><th>H %</th><th>AQI</th></tr></thead>
+          <tbody id="log-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── BLE Link Panel ── -->
+    <div class="panel" id="ble-panel">
+      <h2>BLE Link</h2>
+      <button id="connect-btn">Connect</button>
+      <div id="ble-line" class="disconnected"></div>
+      <div class="ble-stat">Packets sent<span id="pkt-sent">0</span></div>
+      <div class="ble-stat">Packets recv<span id="pkt-recv">0</span></div>
+      <div class="ble-stat" style="margin-top:6px;">RSSI
+        <div class="rssi-bar-bg" style="margin:4px auto;">
+          <div class="rssi-bar-fill" id="rssi-fill" style="width:0%"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Wearable Panel ── -->
+    <div class="panel" id="wearable-panel">
+      <h2>Wearable Device (SSD1306 OLED)</h2>
+      <div id="oled-canvas-wrap">
+        <canvas id="oled"></canvas>
+      </div>
+      <div class="wearable-meta">
+        <span id="w-device-label">Device 1 / 1 active</span>
+        <span>cycles every 5 s</span>
+      </div>
+      <!-- Wearable battery -->
+      <div style="font-size:.82rem;color:var(--muted);display:flex;justify-content:space-between;">
+        <span>Battery</span><span id="w-batt-pct">—</span>
+      </div>
+      <div class="batt-bar-bg"><div class="batt-bar-fill" id="w-batt-fill" style="width:80%"></div></div>
+    </div>
+
+    <!-- ── Chart (full width) ── -->
+    <div class="panel" id="chart-panel">
+      <h2>Live Sensor History (last 60 samples)</h2>
+      <canvas id="sensor-chart"></canvas>
+    </div>
+
+  </div><!-- /#grid -->
+
+  <!-- Controls bar -->
+  <div id="controls-bar">
+
+    <div class="ctrl-group">
+      <label>AQI Alert Threshold: <span class="val" id="thr-aqi-val">100</span></label>
+      <input type="range" id="thr-aqi" min="0" max="300" value="100" step="5" />
+    </div>
+
+    <div class="ctrl-group">
+      <label>Temp Max (°C): <span class="val" id="thr-temp-val">40</span></label>
+      <input type="range" id="thr-temp" min="20" max="60" value="40" step="1" />
+    </div>
+
+    <div class="ctrl-group">
+      <label>Humidity Max (%): <span class="val" id="thr-hum-val">80</span></label>
+      <input type="range" id="thr-hum" min="30" max="100" value="80" step="1" />
+    </div>
+
+    <div class="ctrl-group">
+      <label>OTA Firmware Update: <span class="val" id="ota-status">Idle</span></label>
+      <div id="ota-bar-bg"><div id="ota-bar-fill"></div></div>
+      <button id="ota-btn" style="margin-top:8px;width:100%;">Start OTA Update</button>
+    </div>
+
+  </div>
+
+</div><!-- /#app -->
+<script src="app.js"></script>
+</body>
+</html>
